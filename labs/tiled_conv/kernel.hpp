@@ -3,6 +3,7 @@
 #include "shape.hpp"
 
 enum class ConvAlgorithm {
+  CuDNN = -1,
   Baseline = 0,
 };
 

@@ -43,7 +43,7 @@ set_target_properties( tiled_conv PROPERTIES
                        CUDA_RESOLVE_DEVICE_SYMBOLS ON
                       )
 
-target_link_libraries(tiled_conv ${CUDA_LIBRARIES})
+target_link_libraries(tiled_conv ${CUDA_LIBRARIES} cudnn)
 
 
 include_directories(tiled_conv
