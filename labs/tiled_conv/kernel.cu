@@ -141,6 +141,78 @@ void run_cudnn_convolution(
     cudnnDestroy(cudnn);
 }
 
+template <std::size_t NUM_OUTPUTS, std::size_t REGTILE_SIZE>
+__global__ void conv_forward_tiled_matmul_kernel(
+  const float *X, const shape xdims,
+  const float *W, const shape wdims,
+  float *Y, const shape ydims
+) {
+  extern __shared__ float WShared[];  // size: NUM_OUTPUTS x REGTILE_SIZE
+
+  const std::size_t K = wdims.height;
+  #define WShared2d(n, i) WShared[(n) * (wdims.depth * K * K) + (i)]
+  #define X4d(b, d, h, w) X[(((((b) * xdims.depth) + (d)) * xdims.height + (h)) * xdims.width) + (w)]
+  #define unrolledX3d(b, i1, i0) X4d(b, (i1)/(K*K), (i0)/ydims.width + ((i1)%(K*K))/K, (i0)%ydims.width + (i1)%K)
+  #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
+
+  // Each thread computes Y3d[batch, outputRowStart : outputRowStart+NUM_OUTPUTS, outputColumn],
+  // which is a sub-column of NUM_OUTPUTS elements.
+  std::size_t batch = blockIdx.z;
+  std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
+  std::size_t outputRowStart = blockIdx.y * NUM_OUTPUTS;
+
+  // Load a tile of W to the shared memory.
+  // We need NUM_OUTPUTS row of W. These elements are continuous in the memory,
+  // assuming row major storage. Therefore we directly access W using the 1-D
+  // index without calculating the row and column.
+  std::size_t WTileStart = outputRowStart * K * K;
+  std::size_t WTileEnd = WTileStart + NUM_OUTPUTS * K * K;
+  for (std::size_t i = threadIdx.x; i < WTileEnd - WTileStart; i += blockDim.x) {
+    WShared[i] = W[WTileStart + i];
+  }
+  __syncthreads();
+
+  // Load a column of (unrolled) X to the registers.
+  float XTile[REGTILE_SIZE];
+
+  // The following code is equivalent to this:
+  // ```
+  // for (int i = 0; i < REGTILE_SIZE; i++) {
+  //   XTile[i] = unrolledX3d(batch, i, outputColumn);
+  // }
+  // ```
+  // However, it seems that the compiler is not smart enough to optimize
+  // this memory access pattern, so we do this ourselves.
+  const float *data_ptr = &unrolledX3d(batch, 0, outputColumn);
+  #pragma unroll
+  for (int i = 0; i < REGTILE_SIZE; i++) {
+    XTile[i] = *data_ptr;
+    if (i % K == K - 1) {
+      data_ptr += (xdims.width - K + 1);
+    }
+    else {
+      data_ptr++;
+    }
+  }
+
+  // Compute the outputs.
+  for (int i = 0; i < NUM_OUTPUTS; i++) {
+    float output = 0.0f;
+
+    #pragma unroll
+    for (int j = 0; j < REGTILE_SIZE; j++) {
+      output += WShared2d(i, j) * XTile[j];
+    }
+
+    Y3d(batch, outputRowStart+i, outputColumn) = output;
+  }
+
+  #undef WShared2d
+  #undef W2d
+  #undef X4d
+  #undef unrolledX3d
+}
+
 void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const shape &wdims, float *Y, const shape &ydims,
                        ConvAlgorithm algorithm) {
   switch (algorithm) {
@@ -156,6 +228,20 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       dim3 dim_grid(ceil_div(ydims.num * ydims.depth, 256));
       dim3 dim_block(256); // This size is chosen arbitrarily.
       baseline_conv_kernel<<<dim_grid, dim_block>>>(X, xdims, W, wdims, Y, ydims);
+      THROW_IF_ERROR(cudaGetLastError());
+      THROW_IF_ERROR(cudaDeviceSynchronize());
+      break;
+    }
+    case ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled: {
+      // This block size is a factor of ydims.height * ydims.width (=576).
+      const int blockSize = 288;
+
+      constexpr std::size_t NUM_OUTPUTS = 32; // The number of outputs each thread computes in a column.
+      constexpr std::size_t REGTILE_SIZE = 25; // Should be exactly wdims.height x wdims.width.
+
+      dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
+      int sharedMemorySize = NUM_OUTPUTS * REGTILE_SIZE * sizeof(float);
+      conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, W, wdims, Y, ydims);
       THROW_IF_ERROR(cudaGetLastError());
       THROW_IF_ERROR(cudaDeviceSynchronize());
       break;
