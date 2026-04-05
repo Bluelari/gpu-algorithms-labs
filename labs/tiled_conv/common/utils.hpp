@@ -3,8 +3,10 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include <cassert>
 #include <cstdlib>
 #include <queue>
+#include <string>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

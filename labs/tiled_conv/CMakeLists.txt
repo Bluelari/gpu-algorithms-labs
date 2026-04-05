@@ -19,6 +19,8 @@ include(CTest)
 
 add_executable(tiled_conv
   main.cu
+  kernel.cu
+  kernel.hpp
   helper.hpp
   range.hpp
   shape.hpp

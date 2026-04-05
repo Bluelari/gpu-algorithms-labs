@@ -4,6 +4,7 @@
 #include <numeric>
 #include <type_traits>
 #include <valarray>
+#include <functional>
 
 #ifdef __GNUC__
 #define unused __attribute__((unused))

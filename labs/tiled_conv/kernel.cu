@@ -2,8 +2,9 @@
 
 #include <cstddef>
 #include <cuda_runtime.h>
+#include <iostream>
 
-#include "helper.hpp"
+#include "common/fmt.hpp"
 #include "common/utils.hpp"
 
 // Computes ceil(x / y)
@@ -14,7 +15,7 @@ std::size_t ceil_div(std::size_t x, std::size_t y) {
 
 // A better baseline than the one defined in main.cu.
 // 1 thread outputs 1 feature image.
-__global__ baseline_conv_kernel(const float *X, const shape &xdims, const float *W, const shape &wdims, float *Y, const shape &ydims) {
+__global__ void baseline_conv_kernel(const float *X, const shape xdims, const float *W, const shape wdims, float *Y, const shape ydims) {
   const std::size_t global_idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (global_idx < ydims.num * ydims.depth) {
     std::size_t batch_idx  = global_idx / ydims.depth; // this thread process this input image
@@ -52,6 +53,6 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     default:
-      INFO("Invalid convolution algorithm {}" << static_cast<int>(algorithm));
+      std::cerr << "Invalid convolution algorithm {}" << static_cast<int>(algorithm) << std::endl;
   }
 }
