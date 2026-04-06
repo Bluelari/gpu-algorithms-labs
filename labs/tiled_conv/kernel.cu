@@ -141,16 +141,16 @@ void run_cudnn_convolution(
     cudnnDestroy(cudnn);
 }
 
+__constant__ float conv_filter[32][25];
+
 template <std::size_t NUM_OUTPUTS, std::size_t REGTILE_SIZE>
 __global__ void conv_forward_tiled_matmul_kernel(
   const float *X, const shape xdims,
-  const float *W, const shape wdims,
+  const shape wdims,
   float *Y, const shape ydims
 ) {
-  extern __shared__ float WShared[];  // size: NUM_OUTPUTS x REGTILE_SIZE
-
   const std::size_t K = wdims.height;
-  #define WShared2d(n, i) WShared[(n) * (wdims.depth * K * K) + (i)]
+
   #define X4d(b, d, h, w) X[(((((b) * xdims.depth) + (d)) * xdims.height + (h)) * xdims.width) + (w)]
   #define unrolledX3d(b, i1, i0) X4d(b, (i1)/(K*K), (i0)/ydims.width + ((i1)%(K*K))/K, (i0)%ydims.width + (i1)%K)
   #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
@@ -160,17 +160,6 @@ __global__ void conv_forward_tiled_matmul_kernel(
   std::size_t batch = blockIdx.z;
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
   std::size_t outputRowStart = blockIdx.y * NUM_OUTPUTS;
-
-  // Load a tile of W to the shared memory.
-  // We need NUM_OUTPUTS row of W. These elements are continuous in the memory,
-  // assuming row major storage. Therefore we directly access W using the 1-D
-  // index without calculating the row and column.
-  std::size_t WTileStart = outputRowStart * K * K;
-  std::size_t WTileEnd = WTileStart + NUM_OUTPUTS * K * K;
-  for (std::size_t i = threadIdx.x; i < WTileEnd - WTileStart; i += blockDim.x) {
-    WShared[i] = W[WTileStart + i];
-  }
-  __syncthreads();
 
   // Load a column of (unrolled) X to the registers.
   float XTile[REGTILE_SIZE];
@@ -202,16 +191,15 @@ __global__ void conv_forward_tiled_matmul_kernel(
 
     #pragma unroll
     for (int j = 0; j < REGTILE_SIZE; j++) {
-      output += WShared2d(i, j) * XTile[j];
+      output += conv_filter[outputRowStart+i][j] * XTile[j];
     }
 
     Y3d(batch, outputRowStart+i, outputColumn) = output;
   }
 
-  #undef WShared2d
-  #undef W2d
   #undef X4d
   #undef unrolledX3d
+  #undef Y3d
 }
 
 void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const shape &wdims, float *Y, const shape &ydims,
@@ -235,6 +223,8 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
     }
     case ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled: {
       if (wdims.num == 32 && xdims.depth == 1 && xdims.width == 28 && xdims.height == 28) {
+        THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
+
         // This block size is a factor of ydims.height * ydims.width (=576).
         const int blockSize = 288;
 
@@ -243,7 +233,7 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
 
         dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
         int sharedMemorySize = NUM_OUTPUTS * REGTILE_SIZE * sizeof(float);
-        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, W, wdims, Y, ydims);
+        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, wdims, Y, ydims);
         THROW_IF_ERROR(cudaGetLastError());
         THROW_IF_ERROR(cudaDeviceSynchronize());
       }
