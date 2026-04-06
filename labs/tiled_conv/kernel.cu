@@ -196,6 +196,7 @@ __global__ void conv_forward_tiled_matmul_kernel(
   }
 
   // Compute the outputs.
+  #pragma unroll
   for (int i = 0; i < NUM_OUTPUTS; i++) {
     float output = 0.0f;
 
