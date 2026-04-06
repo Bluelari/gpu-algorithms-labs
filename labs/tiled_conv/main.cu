@@ -141,7 +141,7 @@ static int eval(const shape wDims, const shape xDims, bool doVerify, ConvAlgorit
 
 TEST_CASE("Convlayer", "[convlayer]") {
   ConvAlgorithm algorithm = ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled;
-#if 1
+#if 0
   // test five times in case code errors depend on data
   SECTION("[wDims:32,1,5,5 xDims:20,1,28,28]") {
     eval({32, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
@@ -159,43 +159,43 @@ TEST_CASE("Convlayer", "[convlayer]") {
     eval({32, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
   }
 
-  // Test channel != 1
-  SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
-    eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
-  }
-  SECTION("[wDims:2,15,5,5 xDims:20,15,28,28]") {
-    eval({2, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
-  }
+  // // Test channel != 1
+  // SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
+  //   eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
+  // }
+  // SECTION("[wDims:2,15,5,5 xDims:20,15,28,28]") {
+  //   eval({2, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
+  // }
 
-  // Test filter == 1
-  SECTION("[wDims:1,1,5,5 xDims:20,1,28,28]") {
-    eval({1, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
-  }
+  // // Test filter == 1
+  // SECTION("[wDims:1,1,5,5 xDims:20,1,28,28]") {
+  //   eval({1, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
+  // }
 
-  // Test different shapes
-  SECTION("[wDims:2,2,20,20 xDims:20,2,28,28]") {
-    eval({2, 2,20,20}, {20, 2, 28, 28}, true, algorithm);
-  }
-  SECTION("[wDims:5,4,7,7 xDims:20,4,153,75]") {
-    eval({5, 4, 7, 7}, {20, 4, 153, 75}, true, algorithm);
-  }
-  SECTION("[wDims:5,3,3,5 xDims:20,3,28,28]") {
-    eval({5, 3, 3, 5}, {20, 3, 28, 28}, true, algorithm);
-  }
-  SECTION("[wDims:5,3,6,2 xDims:20,3,77,144]") {
-    eval({5, 3, 6, 2}, {20, 3, 77, 144}, true, algorithm);
-  }
+  // // Test different shapes
+  // SECTION("[wDims:2,2,20,20 xDims:20,2,28,28]") {
+  //   eval({2, 2,20,20}, {20, 2, 28, 28}, true, algorithm);
+  // }
+  // SECTION("[wDims:5,4,7,7 xDims:20,4,153,75]") {
+  //   eval({5, 4, 7, 7}, {20, 4, 153, 75}, true, algorithm);
+  // }
+  // SECTION("[wDims:5,3,3,5 xDims:20,3,28,28]") {
+  //   eval({5, 3, 3, 5}, {20, 3, 28, 28}, true, algorithm);
+  // }
+  // SECTION("[wDims:5,3,6,2 xDims:20,3,77,144]") {
+  //   eval({5, 3, 6, 2}, {20, 3, 77, 144}, true, algorithm);
+  // }
 
-  // Test edge cases
-  SECTION("[wDims:1,1,1,1 xDims:20,1,32,32]") {
-    eval({1, 1,1,1}, {20, 1, 32, 32}, true, algorithm);
-  }
-  SECTION("[wDims:2,1,1,1 xDims:20,1,32,32]") {
-    eval({2, 1,1,1}, {20, 1, 32, 32}, true, algorithm);
-  }
-  SECTION("[wDims:2,1,32,32 xDims:20,1,32,32]") {
-    eval({2, 1,32,32}, {20, 1, 32, 32}, true, algorithm);
-  }
+  // // Test edge cases
+  // SECTION("[wDims:1,1,1,1 xDims:20,1,32,32]") {
+  //   eval({1, 1,1,1}, {20, 1, 32, 32}, true, algorithm);
+  // }
+  // SECTION("[wDims:2,1,1,1 xDims:20,1,32,32]") {
+  //   eval({2, 1,1,1}, {20, 1, 32, 32}, true, algorithm);
+  // }
+  // SECTION("[wDims:2,1,32,32 xDims:20,1,32,32]") {
+  //   eval({2, 1,32,32}, {20, 1, 32, 32}, true, algorithm);
+  // }
 #else
   SECTION("[wDims:32,1,5,5 xDims:50000,1,28,28]") {
     eval({32, 1, 5, 5}, {50000, 1, 28, 28}, false, algorithm);

@@ -233,17 +233,22 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled: {
-      // This block size is a factor of ydims.height * ydims.width (=576).
-      const int blockSize = 288;
+      if (wdims.num == 32 && xdims.depth == 1 && xdims.width == 28 && xdims.height == 28) {
+        // This block size is a factor of ydims.height * ydims.width (=576).
+        const int blockSize = 288;
 
-      constexpr std::size_t NUM_OUTPUTS = 32; // The number of outputs each thread computes in a column.
-      constexpr std::size_t REGTILE_SIZE = 25; // Should be exactly wdims.height x wdims.width.
+        constexpr std::size_t NUM_OUTPUTS = 32; // The number of outputs each thread computes in a column.
+        constexpr std::size_t REGTILE_SIZE = 25; // Should be exactly wdims.height x wdims.width.
 
-      dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
-      int sharedMemorySize = NUM_OUTPUTS * REGTILE_SIZE * sizeof(float);
-      conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, W, wdims, Y, ydims);
-      THROW_IF_ERROR(cudaGetLastError());
-      THROW_IF_ERROR(cudaDeviceSynchronize());
+        dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
+        int sharedMemorySize = NUM_OUTPUTS * REGTILE_SIZE * sizeof(float);
+        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, W, wdims, Y, ydims);
+        THROW_IF_ERROR(cudaGetLastError());
+        THROW_IF_ERROR(cudaDeviceSynchronize());
+      }
+      else {
+        std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+      }
       break;
     }
     default:

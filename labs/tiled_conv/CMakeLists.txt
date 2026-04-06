@@ -45,6 +45,10 @@ set_target_properties( tiled_conv PROPERTIES
 
 target_link_libraries(tiled_conv ${CUDA_LIBRARIES} cudnn)
 
+target_compile_options(tiled_conv PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+                        -lineinfo
+                       >)
+
 
 include_directories(tiled_conv
   ${PROJECT_SOURCE_DIR}/src
