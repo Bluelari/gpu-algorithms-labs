@@ -141,7 +141,7 @@ void run_cudnn_convolution(
     cudnnDestroy(cudnn);
 }
 
-__constant__ float conv_filter[32][25];
+__constant__ float conv_filter[8192]; // 32KB of constant memory, assuming sizeof(float) == 4.
 
 template <std::size_t NUM_OUTPUTS, std::size_t REGTILE_SIZE>
 __global__ void conv_forward_tiled_matmul_kernel(
@@ -191,7 +191,7 @@ __global__ void conv_forward_tiled_matmul_kernel(
 
     #pragma unroll
     for (int j = 0; j < REGTILE_SIZE; j++) {
-      output += conv_filter[outputRowStart+i][j] * XTile[j];
+      output += conv_filter[(outputRowStart+i) * wdims.height * wdims.width + j] * XTile[j];
     }
 
     Y3d(batch, outputRowStart+i, outputColumn) = output;
