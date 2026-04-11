@@ -149,10 +149,6 @@ __global__ void conv_forward_tiled_matmul_kernel(
   const shape wdims,
   float *Y, const shape ydims
 ) {
-  const std::size_t K = wdims.height;
-
-  #define X4d(b, d, h, w) X[(((((b) * xdims.depth) + (d)) * xdims.height + (h)) * xdims.width) + (w)]
-  #define unrolledX3d(b, i1, i0) X4d(b, (i1)/(K*K), (i0)/ydims.width + ((i1)%(K*K))/K, (i0)%ydims.width + (i1)%K)
   #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
 
   // Each thread computes Y3d[batch, outputRowStart : outputRowStart+NUM_OUTPUTS, outputColumn],
@@ -197,12 +193,8 @@ __global__ void conv_forward_tiled_matmul_kernel(
       output += conv_filter[outputRowStart+i][j] * XTile[j];
     }
 
-    Y3d(batch, outputRowStart+i, outputColumn) = output;
+    Y[(batch * ydims.depth + (outputRowStart+i)) * ydims.height * ydims.width + outputColumn] = output;
   }
-
-  #undef X4d
-  #undef unrolledX3d
-  #undef Y3d
 }
 
 void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const shape &wdims, float *Y, const shape &ydims,
