@@ -161,27 +161,27 @@ __global__ void conv_forward_tiled_matmul_kernel(
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
   std::size_t outputRowStart = blockIdx.y * NUM_OUTPUTS;
 
+  // Load a tile of X to shared memory first for memory reuse.
+  // size: elements of X used, including halo cells. 16 x 32 for now.
+  __shared__ float XTileShared[16*32];
+
+  // 1. load 16 rows of X into shared memory.
+  for (int i = threadIdx.x; i < 16 * xdims.width; i += blockDim.x) {
+    XTileShared[i] = X[(batch) * xdims.depth * xdims.height * xdims.width + blockIdx.x * 12 * xdims.width + i];
+  }
+  __syncthreads();
+
   // Load a column of (unrolled) X to the registers.
   float XTile[REGTILE_SIZE];
 
-  // The following code is equivalent to this:
-  // ```
-  // for (int i = 0; i < REGTILE_SIZE; i++) {
-  //   XTile[i] = unrolledX3d(batch, i, outputColumn);
-  // }
-  // ```
-  // However, it seems that the compiler is not smart enough to optimize
-  // this memory access pattern, so we do this ourselves.
-  const float *data_ptr = &unrolledX3d(batch, 0, outputColumn);
-  #pragma unroll
-  for (int i = 0; i < REGTILE_SIZE; i++) {
-    XTile[i] = *data_ptr;
-    if (i % K == K - 1) {
-      data_ptr += (xdims.width - K + 1);
-    }
-    else {
+  float *data_ptr = &XTileShared[(threadIdx.x / ydims.width) * xdims.width + (threadIdx.x % ydims.width)];
+  for (int i = 0; i < REGTILE_SIZE; i += K) {
+    #pragma unroll
+    for (int j = 0; j < K; j++) {
+      XTile[i+j] = *data_ptr;
       data_ptr++;
     }
+    data_ptr += xdims.width - wdims.width;
   }
 
   // Compute the outputs.
