@@ -166,8 +166,10 @@ __global__ void conv_forward_tiled_matmul_kernel(
   __shared__ float XTileShared[16*32];
 
   // 1. load 16 rows of X into shared memory.
-  for (int i = threadIdx.x; i < 16 * xdims.width; i += blockDim.x) {
-    XTileShared[i] = X[(batch) * xdims.depth * xdims.height * xdims.width + blockIdx.x * 12 * xdims.width + i];
+  for (int i = threadIdx.x; i < 8 * xdims.width; i += blockDim.x) {
+    float2 elem = reinterpret_cast<const float2 *>(X + (batch) * xdims.depth * xdims.height * xdims.width + blockIdx.x * 12 * xdims.width)[i];
+    XTileShared[2*i] = elem.x;
+    XTileShared[2*i+1] = elem.y;
   }
   __syncthreads();
 
