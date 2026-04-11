@@ -175,9 +175,10 @@ __global__ void conv_forward_tiled_matmul_kernel(
   float XTile[REGTILE_SIZE];
 
   float *data_ptr = &XTileShared[(threadIdx.x / ydims.width) * xdims.width + (threadIdx.x % ydims.width)];
-  for (int i = 0; i < REGTILE_SIZE; i += K) {
+  #pragma unroll
+  for (int i = 0; i < REGTILE_SIZE; i += 5) {
     #pragma unroll
-    for (int j = 0; j < K; j++) {
+    for (int j = 0; j < 5; j++) {
       XTile[i+j] = *data_ptr;
       data_ptr++;
     }
