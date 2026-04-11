@@ -232,8 +232,7 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
         constexpr std::size_t REGTILE_SIZE = 25; // Should be exactly wdims.height x wdims.width.
 
         dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
-        int sharedMemorySize = NUM_OUTPUTS * REGTILE_SIZE * sizeof(float);
-        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize, sharedMemorySize>>>(X, xdims, wdims, Y, ydims);
+        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize>>>(X, xdims, wdims, Y, ydims);
         THROW_IF_ERROR(cudaGetLastError());
         THROW_IF_ERROR(cudaDeviceSynchronize());
       }
