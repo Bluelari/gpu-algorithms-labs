@@ -159,7 +159,7 @@ TEST_CASE("Convlayer", "[convlayer]") {
     eval({32, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
   }
 
-  // // Test channel != 1
+  // Test channel != 1
   // SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
   //   eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
   // }
