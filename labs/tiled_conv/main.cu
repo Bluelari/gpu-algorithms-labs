@@ -160,12 +160,12 @@ TEST_CASE("Convlayer", "[convlayer]") {
   }
 
   // Test channel != 1
-  // SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
-  //   eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
-  // }
-  // SECTION("[wDims:2,15,5,5 xDims:20,15,28,28]") {
-  //   eval({2, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
-  // }
+  SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
+    eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
+  }
+  SECTION("[wDims:2,15,5,5 xDims:20,15,28,28]") {
+    eval({32, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
+  }
 
   // // Test filter == 1
   // SECTION("[wDims:1,1,5,5 xDims:20,1,28,28]") {
@@ -197,8 +197,8 @@ TEST_CASE("Convlayer", "[convlayer]") {
   //   eval({2, 1,32,32}, {20, 1, 32, 32}, true, algorithm);
   // }
 #else
-  SECTION("[wDims:32,1,5,5 xDims:50000,1,28,28]") {
-    eval({32, 1, 5, 5}, {50000, 1, 28, 28}, false, algorithm);
+  SECTION("[wDims:32,64,5,5 xDims:500,64,28,28]") {
+    eval({32, 64, 5, 5}, {500, 64, 28, 28}, false, algorithm);
   }
 #endif
 }

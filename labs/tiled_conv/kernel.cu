@@ -141,7 +141,7 @@ void run_cudnn_convolution(
     cudnnDestroy(cudnn);
 }
 
-__constant__ float conv_filter[32][25];
+__constant__ float conv_filter[16384]; // 64KB
 
 template <std::size_t NUM_OUTPUTS, std::size_t R, std::size_t S>
 __global__ void conv_forward_tiled_matmul_kernel(
@@ -195,7 +195,7 @@ __global__ void conv_forward_tiled_matmul_kernel(
       for (std::size_t j = 0; j < NUM_OUTPUTS; j++) {
         #pragma unroll
         for (int k = 0; k < S; k++) {
-          outputs[j] += conv_filter[outputRowStart+j][i+k] * XTile[k];
+          outputs[j] += conv_filter[(outputRowStart+j) * R * S + (i + k)] * XTile[k];
         }
       }
 
