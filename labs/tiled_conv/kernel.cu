@@ -88,6 +88,7 @@ void run_cudnn_convolution(
     checkCudnn(cudnnSetTensor4dDescriptor(output_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
                                           out_n, out_c, out_h, out_w));
 
+#if 0
     // --- 5. Find Best Algorithm (Modern cuDNN 8+ Approach) ---
     int requested_algo_count = 1;
     int returned_algo_count = 0;
@@ -113,6 +114,19 @@ void run_cudnn_convolution(
       std::cerr << "No suitable algorithm found!" << std::endl;
       exit(EXIT_FAILURE);
     }
+#else
+    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
+    std::size_t workspace_size;
+    checkCudnn(cudnnGetConvolutionForwardWorkspaceSize(
+      cudnn,
+      input_desc,
+      filter_desc,
+      conv_desc,
+      output_desc,
+      algo,
+      &workspace_size
+    ));
+#endif
     std::cout << "CuDNN using algorithm: " << static_cast<int>(algo) << std::endl;
     std::cout << "Workspace size: " << workspace_size << std::endl;
 
