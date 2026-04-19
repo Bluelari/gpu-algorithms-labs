@@ -140,7 +140,7 @@ static int eval(const shape wDims, const shape xDims, bool doVerify, ConvAlgorit
 }
 
 TEST_CASE("Convlayer", "[convlayer]") {
-  ConvAlgorithm algorithm = ConvAlgorithm::MatmulConceptualUnrollingShmemRegisterTiled;
+  ConvAlgorithm algorithm = ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled;
 #if 0
   SECTION("[wDims:32,1,5,5 xDims:20,1,28,28]") {
     eval({32, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
@@ -174,6 +174,17 @@ TEST_CASE("Convlayer", "[convlayer]") {
     eval({1, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
   }
 
+  // Test input size != 28 x 28
+  SECTION("[wDims:3,2,5,5 xDims:10,2,20,28]") {
+    eval({3, 2, 5, 5}, {10, 2, 20, 28}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,28,20]") {
+    eval({3, 2, 5, 5}, {10, 2, 28, 20}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,56,56]") {
+    eval({3, 2, 5, 5}, {10, 2, 56, 56}, true, algorithm);
+  }
+
   // // Test edge cases
   // SECTION("[wDims:1,1,1,1 xDims:20,1,32,32]") {
   //   eval({1, 1, 1, 1}, {20, 1, 32, 32}, true, algorithm);
@@ -188,11 +199,11 @@ TEST_CASE("Convlayer", "[convlayer]") {
   SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
     eval({16, 3, 5, 5}, {5000, 3, 28, 28}, false, algorithm);
   }
-  // SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
-  //   eval({16, 3, 5, 5}, {5000, 3, 56, 56}, false, algorithm);
-  // }
-  // SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
-  //   eval({16, 3, 5, 5}, {5000, 3, 112, 112}, false, algorithm);
-  // }
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+    eval({16, 3, 5, 5}, {5000, 3, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+    eval({16, 3, 5, 5}, {5000, 3, 112, 112}, false, algorithm);
+  }
 #endif
 }

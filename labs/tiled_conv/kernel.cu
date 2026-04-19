@@ -167,6 +167,10 @@ __global__ void conv_forward_register_tiled_matmul_kernel(
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
   std::size_t C = xdims.depth;
 
+  if (outputColumn >= ydims.height * ydims.width) {
+    return;
+  }
+
   // The outputs, which is a sub-column of Y.
   float outputs[NUM_OUTPUTS];
 
@@ -307,14 +311,13 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled: {
-      if (wdims.width == 5 && wdims.height == 5 && xdims.width == 28 && xdims.height == 28) {
+      if (wdims.width == 5 && wdims.height == 5) {
         THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
 
-        // This block size is a factor of ydims.height * ydims.width (=576).
         const int blockSize = 64;
         constexpr std::size_t R = 5, S = 5;
 
-        dim3 dimGrid(ydims.height * ydims.width / blockSize, 1, ydims.num);
+        dim3 dimGrid(ceil_div(ydims.height * ydims.width, blockSize), 1, ydims.num);
 
         if (wdims.num <= 4) {
           conv_forward_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize>>>(X, xdims, Y, ydims);
