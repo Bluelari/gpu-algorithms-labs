@@ -83,7 +83,7 @@ static bool verify(const float *expected, const float *actual, const shape& dims
           for (size_t w = 0; w < dims.width; ++w) {
             size_t ii = w + dims.width * (h + dims.height * (d + dims.depth * (n)));
             INFO("the results did not match at [" << n << "," << d << "," << h << "," << w << "] (index " << ii << ')');
-            REQUIRE(std::abs(expected[ii] - actual[ii]) < 0.01);
+            REQUIRE_THAT(expected[ii], Catch::Matchers::WithinAbs(actual[ii], 0.01));
           }
         }
       }
