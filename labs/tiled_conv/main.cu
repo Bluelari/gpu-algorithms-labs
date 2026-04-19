@@ -140,7 +140,7 @@ static int eval(const shape wDims, const shape xDims, bool doVerify, ConvAlgorit
 }
 
 TEST_CASE("Convlayer", "[convlayer]") {
-  ConvAlgorithm algorithm = ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled;
+  ConvAlgorithm algorithm = ConvAlgorithm::CuDNN;
 #if 0
   SECTION("[wDims:32,1,5,5 xDims:20,1,28,28]") {
     eval({32, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
@@ -185,8 +185,14 @@ TEST_CASE("Convlayer", "[convlayer]") {
   //   eval({2, 1, 32, 32}, {20, 1, 32, 32}, true, algorithm);
   // }
 #else
-  SECTION("[wDims:32,64,5,5 xDims:500,64,28,28]") {
-    eval({32, 64, 5, 5}, {500, 64, 28, 28}, false, algorithm);
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+    eval({16, 3, 5, 5}, {5000, 3, 28, 28}, false, algorithm);
   }
+  // SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+  //   eval({16, 3, 5, 5}, {5000, 3, 56, 56}, false, algorithm);
+  // }
+  // SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+  //   eval({16, 3, 5, 5}, {5000, 3, 112, 112}, false, algorithm);
+  // }
 #endif
 }
