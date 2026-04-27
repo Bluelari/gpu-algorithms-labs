@@ -241,12 +241,15 @@ __global__ void conv_forward_shmem_register_tiled_matmul_kernel(
     outputs[i] = 0.0f;
   }
 
+  int block_input_row_offset = blockIdx.x * (blockDim.x / ydims.width);
+  int block_input_row_num = blockDim.x / ydims.width + R - 1; // Either this or xdims.width must be even.
+
   // For each channel, load a tile into shared memory, and then to registers.
   // TODO: we can probably load more than 1 channel to the shared memory at a time to reduce __syncthreads().
   for (std::size_t channel = 0; channel < xdims.depth; channel++) {
-    // 1. Load 16 rows of X into shared memory.
-    for (std::size_t i = threadIdx.x; i < 8 * xdims.width; i += blockDim.x) {
-      float2 elem = reinterpret_cast<const float2 *>(X + ((batch * xdims.depth + channel) * xdims.height + blockIdx.x * 12) * xdims.width)[i];
+    // 1. Load rows of X into shared memory.
+    for (std::size_t i = threadIdx.x; i < block_input_row_num * xdims.width / 2; i += blockDim.x) {
+      float2 elem = reinterpret_cast<const float2 *>(X + ((batch * xdims.depth + channel) * xdims.height + block_input_row_offset) * xdims.width)[i];
       XTileShared[2*i] = elem.x;
       XTileShared[2*i+1] = elem.y;
     }
@@ -340,15 +343,45 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingShmemRegisterTiled: {
-      if (wdims.width == 5 && wdims.height == 5 && xdims.width == 28 && xdims.height == 28) {
+      if (wdims.width == 5 && wdims.height == 5 && ydims.height % 2 == 0) {
         THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
 
-        // This block size is a factor of ydims.height * ydims.width (=576).
-        const int blockSize = 288;
+        // This block size is a factor of ydims.height * ydims.width. If xdims.width is odd, the
+        // block size must also be an even factor of ydims.width.
+        // We use a simple algorithm to find the suitable block size: always pick the largest
+        // value that is <= 512. This will give a minimum occupacy of 66.8% (when ydims.width =
+        // 171) on a Nvidia T4 which has 1024 threads / SM.
+        int rows = 512 / ydims.width;
+        if (xdims.width % 2 == 0) {
+          while (rows > 0) {
+            if (ydims.height % rows == 0) {
+              break;
+            }
+            rows--;
+          }
+        }
+        else {
+          rows = rows / 2 * 2;
+          while (rows > 0) {
+            if (ydims.height % rows == 0) {
+              break;
+            }
+            rows -= 2;
+          }
+        }
+        if (rows == 0) {
+          std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+          break;
+        }
+        int blockSize = rows * ydims.width;
+
         constexpr std::size_t R = 5, S = 5;
 
         dim3 dimGrid(ydims.height * ydims.width / blockSize, 1, ydims.num);
-        std::size_t shared_memory_size = sizeof(float) * xdims.width * xdims.height;
+        std::size_t shared_memory_size = sizeof(float) * (rows + wdims.height - 1) * xdims.width;
+        std::cout << "dimGrid = (" << dimGrid.x << ", " << dimGrid.y << ", " << dimGrid.z << ")" << std::endl;
+        std::cout << "blockSize = " << blockSize << std::endl;
+        std::cout << "sharedMem = " << shared_memory_size << "B" << std::endl;
 
         if (wdims.num <= 4) {
           conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
