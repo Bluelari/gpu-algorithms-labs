@@ -88,6 +88,7 @@ void run_cudnn_convolution(
     checkCudnn(cudnnSetTensor4dDescriptor(output_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
                                           out_n, out_c, out_h, out_w));
 
+#if 0
     // --- 5. Find Best Algorithm (Modern cuDNN 8+ Approach) ---
     int requested_algo_count = 1;
     int returned_algo_count = 0;
@@ -113,6 +114,19 @@ void run_cudnn_convolution(
       std::cerr << "No suitable algorithm found!" << std::endl;
       exit(EXIT_FAILURE);
     }
+#else
+    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
+    std::size_t workspace_size;
+    checkCudnn(cudnnGetConvolutionForwardWorkspaceSize(
+      cudnn,
+      input_desc,
+      filter_desc,
+      conv_desc,
+      output_desc,
+      algo,
+      &workspace_size
+    ));
+#endif
     std::cout << "CuDNN using algorithm: " << static_cast<int>(algo) << std::endl;
     std::cout << "Workspace size: " << workspace_size << std::endl;
 
@@ -141,59 +155,142 @@ void run_cudnn_convolution(
     cudnnDestroy(cudnn);
 }
 
-__constant__ float conv_filter[32][25];
+__constant__ float conv_filter[16384]; // 64KB
 
-template <std::size_t NUM_OUTPUTS, std::size_t REGTILE_SIZE>
-__global__ void conv_forward_tiled_matmul_kernel(
+template <std::size_t NUM_OUTPUTS, std::size_t R, std::size_t S>
+__global__ void conv_forward_register_tiled_matmul_kernel(
   const float *X, const shape xdims,
-  const shape wdims,
+  float *Y, const shape ydims
+) {
+  // Each thread computes Y3d[batch, :, outputColumn], which is a column of NUM_OUTPUTS elements.
+  std::size_t batch = blockIdx.z;
+  std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
+  std::size_t C = xdims.depth;
+
+  if (outputColumn >= ydims.height * ydims.width) {
+    return;
+  }
+
+  // The outputs, which is a sub-column of Y.
+  float outputs[NUM_OUTPUTS];
+
+  #pragma unroll
+  for (std::size_t i = 0; i < NUM_OUTPUTS; i++) {
+    outputs[i] = 0.0f;
+  }
+
+  constexpr std::size_t STEP_SIZE = R * S;
+  for (std::size_t i = 0; i < C * R * S; i += STEP_SIZE) {
+    // Load a tile from X into registers.
+    float X_tile[STEP_SIZE];
+
+    #pragma unroll
+    for (std::size_t j = 0; j < STEP_SIZE; j++) {
+      if (i + j >= C * R * S) {
+        X_tile[j] = 0.0f;
+      }
+      else {
+        X_tile[j] = X[((batch * C + ((i+j)/(R*S))) * xdims.height + (outputColumn / ydims.width + (i+j)%(R*S) / S)) * xdims.width + (outputColumn % ydims.width + (i+j) % S)];
+      }
+    }
+
+    // Tiled matrix multiplication.
+    #pragma unroll
+    for (std::size_t j = 0; j < NUM_OUTPUTS; j++) {
+      if (j >= ydims.depth) {
+        break;
+      }
+
+      #pragma unroll
+      for (std::size_t k = 0; k < STEP_SIZE; k++) {
+        outputs[j] += conv_filter[j * (C * R * S) + (i + k)] * X_tile[k];
+      }
+    }
+  }
+
+  #pragma unroll
+  for (std::size_t i = 0; i < NUM_OUTPUTS; i++) {
+    if (i >= ydims.depth) {
+      break;
+    }
+
+    Y[(batch * ydims.depth + i) * ydims.height * ydims.width + outputColumn] = outputs[i];
+  }
+}
+
+template <std::size_t NUM_OUTPUTS, std::size_t R, std::size_t S>
+__global__ void conv_forward_shmem_register_tiled_matmul_kernel(
+  const float *X, const shape xdims,
   float *Y, const shape ydims
 ) {
   #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
 
-  // Each thread computes Y3d[batch, outputRowStart : outputRowStart+NUM_OUTPUTS, outputColumn],
-  // which is a sub-column of NUM_OUTPUTS elements.
+  // Each thread computes Y3d[batch, :, outputColumn], which is a column of NUM_OUTPUTS elements.
   std::size_t batch = blockIdx.z;
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
-  std::size_t outputRowStart = blockIdx.y * NUM_OUTPUTS;
 
   // Load a tile of X to shared memory first for memory reuse.
-  // size: elements of X used, including halo cells. 16 x 32 for now.
-  __shared__ float XTileShared[16*32];
+  // size: elements of X used, including halo cells.
+  extern __shared__ float XTileShared[];
 
-  // 1. load 16 rows of X into shared memory.
-  for (int i = threadIdx.x; i < 8 * xdims.width; i += blockDim.x) {
-    float2 elem = reinterpret_cast<const float2 *>(X + (batch) * xdims.depth * xdims.height * xdims.width + blockIdx.x * 12 * xdims.width)[i];
-    XTileShared[2*i] = elem.x;
-    XTileShared[2*i+1] = elem.y;
-  }
-  __syncthreads();
+  // The outputs, which is a sub-column of Y.
+  float outputs[NUM_OUTPUTS];
 
-  // Load a column of (unrolled) X to the registers.
-  float XTile[REGTILE_SIZE];
-
-  float *data_ptr = &XTileShared[(threadIdx.x / ydims.width) * xdims.width + (threadIdx.x % ydims.width)];
   #pragma unroll
-  for (int i = 0; i < REGTILE_SIZE; i += 5) {
-    #pragma unroll
-    for (int j = 0; j < 5; j++) {
-      XTile[i+j] = *data_ptr;
-      data_ptr++;
-    }
-    data_ptr += xdims.width - wdims.width;
+  for (std::size_t i = 0; i < NUM_OUTPUTS; i++) {
+    outputs[i] = 0.0f;
   }
 
-  // Compute the outputs.
-  #pragma unroll
-  for (int i = 0; i < NUM_OUTPUTS; i++) {
-    float output = 0.0f;
+  int block_input_row_offset = blockIdx.x * (blockDim.x / ydims.width);
+  int block_input_row_num = blockDim.x / ydims.width + R - 1; // Either this or xdims.width must be even.
 
-    #pragma unroll
-    for (int j = 0; j < REGTILE_SIZE; j++) {
-      output += conv_filter[outputRowStart+i][j] * XTile[j];
+  // For each channel, load a tile into shared memory, and then to registers.
+  // TODO: we can probably load more than 1 channel to the shared memory at a time to reduce __syncthreads().
+  for (std::size_t channel = 0; channel < xdims.depth; channel++) {
+    // 1. Load rows of X into shared memory.
+    for (std::size_t i = threadIdx.x; i < block_input_row_num * xdims.width / 2; i += blockDim.x) {
+      float2 elem = reinterpret_cast<const float2 *>(X + ((batch * xdims.depth + channel) * xdims.height + block_input_row_offset) * xdims.width)[i];
+      XTileShared[2*i] = elem.x;
+      XTileShared[2*i+1] = elem.y;
+    }
+    __syncthreads();
+
+    float *X_data = &XTileShared[(threadIdx.x / ydims.width) * xdims.width + (threadIdx.x % ydims.width)];
+    float XTile[S];
+
+    for (std::size_t i = 0; i < R * S; i += S) {
+      // 2. Load a tile of X from shared memory -> registers.
+      #pragma unroll
+      for (std::size_t j = 0; j < S; j++) {
+        XTile[j] = *X_data;
+        X_data++;
+      }
+
+      // 3. Accumulate to the outpus.
+      #pragma unroll
+      for (std::size_t j = 0; j < NUM_OUTPUTS; j++) {
+        if (j >= ydims.depth) {
+          break;
+        }
+
+        #pragma unroll
+        for (int k = 0; k < S; k++) {
+          outputs[j] += conv_filter[j * R * S + (i + k)] * XTile[k];
+        }
+      }
+
+      X_data += ydims.width - 1;
+    }
+    __syncthreads();
+  }
+
+  #pragma unroll
+  for (std::size_t i = 0; i < NUM_OUTPUTS; i++) {
+    if (i >= ydims.depth) {
+      break;
     }
 
-    Y[(batch * ydims.depth + (outputRowStart+i)) * ydims.height * ydims.width + outputColumn] = output;
+    Y[(batch * ydims.depth + i) * ydims.height * ydims.width + outputColumn] = outputs[i];
   }
 }
 
@@ -217,17 +314,87 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingRegisterTiled: {
-      if (wdims.num == 32 && xdims.depth == 1 && xdims.width == 28 && xdims.height == 28) {
+      if (wdims.width == 5 && wdims.height == 5) {
         THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
 
-        // This block size is a factor of ydims.height * ydims.width (=576).
-        const int blockSize = 288;
+        const int blockSize = 64;
+        constexpr std::size_t R = 5, S = 5;
 
-        constexpr std::size_t NUM_OUTPUTS = 32; // The number of outputs each thread computes in a column.
-        constexpr std::size_t REGTILE_SIZE = 25; // Should be exactly wdims.height x wdims.width.
+        dim3 dimGrid(ceil_div(ydims.height * ydims.width, blockSize), 1, ydims.num);
 
-        dim3 dimGrid(ydims.height * ydims.width / blockSize, ydims.depth / NUM_OUTPUTS, ydims.num);
-        conv_forward_tiled_matmul_kernel<NUM_OUTPUTS, REGTILE_SIZE><<<dimGrid, blockSize>>>(X, xdims, wdims, Y, ydims);
+        if (wdims.num <= 4) {
+          conv_forward_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 8) {
+          conv_forward_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 16) {
+          conv_forward_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 32) {
+          conv_forward_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize>>>(X, xdims, Y, ydims);
+        }
+        THROW_IF_ERROR(cudaGetLastError());
+        THROW_IF_ERROR(cudaDeviceSynchronize());
+      }
+      else {
+        std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+      }
+      break;
+    }
+    case ConvAlgorithm::MatmulConceptualUnrollingShmemRegisterTiled: {
+      if (wdims.width == 5 && wdims.height == 5 && ydims.height % 2 == 0) {
+        THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
+
+        // This block size is a factor of ydims.height * ydims.width. If xdims.width is odd, the
+        // block size must also be an even factor of ydims.width.
+        // We use a simple algorithm to find the suitable block size: always pick the largest
+        // value that is <= 512. This will give a minimum occupacy of 66.8% (when ydims.width =
+        // 171) on a Nvidia T4 which has 1024 threads / SM.
+        int rows = 512 / ydims.width;
+        if (xdims.width % 2 == 0) {
+          while (rows > 0) {
+            if (ydims.height % rows == 0) {
+              break;
+            }
+            rows--;
+          }
+        }
+        else {
+          rows = rows / 2 * 2;
+          while (rows > 0) {
+            if (ydims.height % rows == 0) {
+              break;
+            }
+            rows -= 2;
+          }
+        }
+        if (rows == 0) {
+          std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+          break;
+        }
+        int blockSize = rows * ydims.width;
+
+        constexpr std::size_t R = 5, S = 5;
+
+        dim3 dimGrid(ydims.height * ydims.width / blockSize, 1, ydims.num);
+        std::size_t shared_memory_size = sizeof(float) * (rows + wdims.height - 1) * xdims.width;
+        std::cout << "dimGrid = (" << dimGrid.x << ", " << dimGrid.y << ", " << dimGrid.z << ")" << std::endl;
+        std::cout << "blockSize = " << blockSize << std::endl;
+        std::cout << "sharedMem = " << shared_memory_size << "B" << std::endl;
+
+        if (wdims.num <= 4) {
+          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 8) {
+          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 16) {
+          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 32) {
+          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
         THROW_IF_ERROR(cudaGetLastError());
         THROW_IF_ERROR(cudaDeviceSynchronize());
       }
