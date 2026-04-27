@@ -175,17 +175,20 @@ TEST_CASE("Convlayer", "[convlayer]") {
   }
 
   // Test input size != 28 x 28
+  SECTION("[wDims:3,2,5,5 xDims:10,2,56,56]") {
+    eval({3, 2, 5, 5}, {10, 2, 56, 56}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,112,112]") {
+    eval({3, 2, 5, 5}, {10, 2, 112, 112}, true, algorithm);
+  }
   SECTION("[wDims:3,2,5,5 xDims:10,2,20,28]") {
     eval({3, 2, 5, 5}, {10, 2, 20, 28}, true, algorithm);
   }
   SECTION("[wDims:3,2,5,5 xDims:10,2,28,20]") {
     eval({3, 2, 5, 5}, {10, 2, 28, 20}, true, algorithm);
   }
-  SECTION("[wDims:3,2,5,5 xDims:10,2,56,56]") {
-    eval({3, 2, 5, 5}, {10, 2, 56, 56}, true, algorithm);
-  }
-  SECTION("[wDims:3,2,5,5 xDims:10,2,112,112]") {
-    eval({3, 2, 5, 5}, {10, 2, 112, 112}, true, algorithm);
+  SECTION("[wDims:3,2,5,5 xDims:10,2,6,8]") {
+    eval({3, 2, 5, 5}, {10, 2, 6, 8}, true, algorithm);
   }
 
   // // Test edge cases
@@ -207,6 +210,15 @@ TEST_CASE("Convlayer", "[convlayer]") {
   }
   SECTION("[wDims:16,3,5,5 xDims:5000,3,112,112]") {
     eval({16, 3, 5, 5}, {5000, 3, 112, 112}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,5,5 xDims:5000,6,28,28]") {
+    eval({16, 6, 5, 5}, {5000, 6, 28, 28}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,5,5 xDims:5000,6,56,56]") {
+    eval({16, 6, 5, 5}, {5000, 6, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,5,5 xDims:5000,6,112,112]") {
+    eval({16, 6, 5, 5}, {5000, 6, 112, 112}, false, algorithm);
   }
 #endif
 }
