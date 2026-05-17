@@ -242,16 +242,44 @@ __global__ void conv_forward_shmem_register_tiled_matmul_kernel(
   }
 
   int block_input_row_offset = blockIdx.x * (blockDim.x / ydims.width);
-  int block_input_row_num = blockDim.x / ydims.width + R - 1; // Either this or xdims.width must be even.
+  int block_input_row_num = blockDim.x / ydims.width + R - 1;
 
   // For each channel, load a tile into shared memory, and then to registers.
-  // TODO: we can probably load more than 1 channel to the shared memory at a time to reduce __syncthreads().
   for (std::size_t channel = 0; channel < xdims.depth; channel++) {
     // 1. Load rows of X into shared memory.
-    for (std::size_t i = threadIdx.x; i < block_input_row_num * xdims.width / 2; i += blockDim.x) {
-      float2 elem = reinterpret_cast<const float2 *>(X + ((batch * xdims.depth + channel) * xdims.height + block_input_row_offset) * xdims.width)[i];
-      XTileShared[2*i] = elem.x;
-      XTileShared[2*i+1] = elem.y;
+    const float *X_rows_begin = X + ((batch * xdims.depth + channel) * xdims.height + block_input_row_offset) * xdims.width;
+    if (reinterpret_cast<std::uintptr_t>(X_rows_begin) % sizeof(float2) == 0) { // The first element is aligned to multiple of 8.
+      for (std::size_t i = threadIdx.x; 2 * i < block_input_row_num * xdims.width; i += blockDim.x) {
+        if (2 * i + 1 == block_input_row_num * xdims.width) {
+          // Last element of an odd number of inputs. Load a single float.
+          float elem = *(X_rows_begin + 2 * i);
+          XTileShared[2*i] = elem;
+        }
+        else {
+          float2 elem = reinterpret_cast<const float2 *>(X_rows_begin)[i];
+          XTileShared[2*i] = elem.x;
+          XTileShared[2*i+1] = elem.y;
+        }
+      }
+    }
+    else { // The first element is not aligned to multiple of 8.
+      for (std::size_t i = threadIdx.x; 2 * i <= block_input_row_num * xdims.width; i += blockDim.x) {
+        if (i == 0) {
+          // Misaligned first element. Load a single float.
+          float elem = *(X_rows_begin + 2 * i);
+          XTileShared[2*i] = elem;
+        }
+        else if (2 * i == block_input_row_num * xdims.width) {
+          // Misaligned last element.
+          float elem = *(X_rows_begin + 2 * i - 1);
+          XTileShared[2*i-1] = elem;
+        }
+        else {
+          float2 elem = reinterpret_cast<const float2 *>(X_rows_begin - 1)[i];
+          XTileShared[2*i-1] = elem.x;
+          XTileShared[2*i] = elem.y;
+        }
+      }
     }
     __syncthreads();
 
@@ -343,45 +371,52 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingShmemRegisterTiled: {
-      if (wdims.width == 5 && wdims.height == 5 && ydims.height % 2 == 0) {
-        THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
+      // Constant memory is used to store the convolution filter.
+      THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
 
-        // This block size is a factor of ydims.height * ydims.width. If xdims.width is odd, the
-        // block size must also be an even factor of ydims.width.
-        // We use a simple algorithm to find the suitable block size: always pick the largest
-        // value that is <= 512. This will give a minimum occupacy of 66.8% (when ydims.width =
-        // 171) on a Nvidia T4 which has 1024 threads / SM.
-        int rows = 512 / ydims.width;
-        if (xdims.width % 2 == 0) {
-          while (rows > 0) {
-            if (ydims.height % rows == 0) {
-              break;
-            }
-            rows--;
-          }
-        }
-        else {
-          rows = rows / 2 * 2;
-          while (rows > 0) {
-            if (ydims.height % rows == 0) {
-              break;
-            }
-            rows -= 2;
-          }
-        }
-        if (rows == 0) {
-          std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+      // This block size is a factor of ydims.height * ydims.width, and a multiple of ydims.width.
+      // We use a simple algorithm to find the suitable block size: always pick the largest
+      // value that is <= 512. This will give a minimum occupacy of 66.8% (when ydims.width =
+      // 171) on a Nvidia T4 which has 1024 threads / SM.
+      int rows = 512 / ydims.width;
+      while (rows > 0) {
+        if (ydims.height % rows == 0) {
           break;
         }
-        int blockSize = rows * ydims.width;
+        rows--;
+      }
+      if (rows == 0) {
+        std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
+        break;
+      }
+      int blockSize = rows * ydims.width;
 
+      dim3 dimGrid(ydims.height * ydims.width / blockSize, 1, ydims.num);
+      std::size_t shared_memory_size = sizeof(float) * (rows + wdims.height - 1) * xdims.width;
+      std::cout << "dimGrid = (" << dimGrid.x << ", " << dimGrid.y << ", " << dimGrid.z << ")" << std::endl;
+      std::cout << "blockSize = " << blockSize << std::endl;
+      std::cout << "sharedMem = " << shared_memory_size << "B" << std::endl;
+
+      if (wdims.width == 5 && wdims.height == 5) {
         constexpr std::size_t R = 5, S = 5;
 
-        dim3 dimGrid(ydims.height * ydims.width / blockSize, 1, ydims.num);
-        std::size_t shared_memory_size = sizeof(float) * (rows + wdims.height - 1) * xdims.width;
-        std::cout << "dimGrid = (" << dimGrid.x << ", " << dimGrid.y << ", " << dimGrid.z << ")" << std::endl;
-        std::cout << "blockSize = " << blockSize << std::endl;
-        std::cout << "sharedMem = " << shared_memory_size << "B" << std::endl;
+        if (wdims.num <= 4) {
+          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 8) {
+          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 16) {
+          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        else if (wdims.num <= 32) {
+          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+        }
+        THROW_IF_ERROR(cudaGetLastError());
+        THROW_IF_ERROR(cudaDeviceSynchronize());
+      }
+      else if (wdims.width == 3 && wdims.height == 3) {
+        constexpr std::size_t R = 3, S = 3;
 
         if (wdims.num <= 4) {
           conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);

@@ -190,18 +190,54 @@ TEST_CASE("Convlayer", "[convlayer]") {
   SECTION("[wDims:3,2,5,5 xDims:10,2,6,8]") {
     eval({3, 2, 5, 5}, {10, 2, 6, 8}, true, algorithm);
   }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,31,31]") {
+    eval({3, 2, 5, 5}, {10, 2, 31, 31}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,7,7]") {
+    eval({3, 2, 5, 5}, {10, 2, 7, 7}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,25,28]") {
+    eval({3, 2, 5, 5}, {10, 2, 25, 28}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,28,25]") {
+    eval({3, 2, 5, 5}, {10, 2, 28, 25}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,5,5]") {
+    eval({3, 2, 5, 5}, {10, 2, 5, 5}, true, algorithm);
+  }
 
-  // // Test edge cases
-  // SECTION("[wDims:1,1,1,1 xDims:20,1,32,32]") {
-  //   eval({1, 1, 1, 1}, {20, 1, 32, 32}, true, algorithm);
-  // }
-  // SECTION("[wDims:2,1,1,1 xDims:20,1,32,32]") {
-  //   eval({2, 1, 1, 1}, {20, 1, 32, 32}, true, algorithm);
-  // }
-  // SECTION("[wDims:2,1,32,32 xDims:20,1,32,32]") {
-  //   eval({2, 1, 32, 32}, {20, 1, 32, 32}, true, algorithm);
-  // }
+  // Test kernel size = 3x3
+  SECTION("[wDims:3,1,3,3 xDims:10,1,28,28]") {
+    eval({3, 1, 3, 3}, {10, 1, 28, 28}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,3,3 xDims:10,2,28,28]") {
+    eval({3, 2, 3, 3}, {10, 2, 28, 28}, true, algorithm);
+  }
+  SECTION("[wDims:3,1,3,3 xDims:10,1,56,56]") {
+    eval({3, 1, 3, 3}, {10, 1, 56, 56}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,3,3 xDims:10,2,56,56]") {
+    eval({3, 2, 3, 3}, {10, 2, 56, 56}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,3,3 xDims:10,2,3,3]") {
+    eval({3, 2, 3, 3}, {10, 2, 3, 3}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,3,3 xDims:10,2,28,25]") {
+    eval({3, 2, 3, 3}, {10, 2, 28, 25}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,3,3 xDims:10,2,25,28]") {
+    eval({3, 2, 3, 3}, {10, 2, 25, 28}, true, algorithm);
+  }
 #else
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
+    eval({16, 1, 5, 5}, {5000, 1, 28, 28}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,56,56]") {
+    eval({16, 1, 5, 5}, {5000, 1, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,5,5 xDims:5000,3,112,112]") {
+    eval({16, 1, 5, 5}, {5000, 1, 112, 112}, false, algorithm);
+  }
   SECTION("[wDims:16,3,5,5 xDims:5000,3,28,28]") {
     eval({16, 3, 5, 5}, {5000, 3, 28, 28}, false, algorithm);
   }
@@ -219,6 +255,34 @@ TEST_CASE("Convlayer", "[convlayer]") {
   }
   SECTION("[wDims:16,6,5,5 xDims:5000,6,112,112]") {
     eval({16, 6, 5, 5}, {5000, 6, 112, 112}, false, algorithm);
+  }
+
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,28,28]") {
+    eval({16, 1, 3, 3}, {5000, 1, 28, 28}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,56,56]") {
+    eval({16, 1, 3, 3}, {5000, 1, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,112,112]") {
+    eval({16, 1, 3, 3}, {5000, 1, 112, 112}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,28,28]") {
+    eval({16, 3, 3, 3}, {5000, 3, 28, 28}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,56,56]") {
+    eval({16, 3, 3, 3}, {5000, 3, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,3,3,3 xDims:5000,3,112,112]") {
+    eval({16, 3, 3, 3}, {5000, 3, 112, 112}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,3,3 xDims:5000,6,28,28]") {
+    eval({16, 6, 3, 3}, {5000, 6, 28, 28}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,3,3 xDims:5000,6,56,56]") {
+    eval({16, 6, 3, 3}, {5000, 6, 56, 56}, false, algorithm);
+  }
+  SECTION("[wDims:16,6,3,3 xDims:5000,6,112,112]") {
+    eval({16, 6, 3, 3}, {5000, 6, 112, 112}, false, algorithm);
   }
 #endif
 }
