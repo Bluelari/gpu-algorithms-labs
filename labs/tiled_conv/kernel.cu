@@ -162,6 +162,7 @@ __global__ void conv_forward_register_tiled_matmul_kernel(
   const float *X, const shape xdims,
   float *Y, const shape ydims
 ) {
+  // #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
   // Each thread computes Y3d[batch, :, outputColumn], which is a column of NUM_OUTPUTS elements.
   std::size_t batch = blockIdx.z;
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
@@ -223,8 +224,7 @@ __global__ void conv_forward_shmem_register_tiled_matmul_kernel(
   const float *X, const shape xdims,
   float *Y, const shape ydims
 ) {
-  #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
-
+  // #define Y3d(b, n, i) Y[(((b) * ydims.depth) + (n)) * ydims.height * ydims.width + (i)]
   // Each thread computes Y3d[batch, :, outputColumn], which is a column of NUM_OUTPUTS elements.
   std::size_t batch = blockIdx.z;
   std::size_t outputColumn = blockIdx.x * blockDim.x + threadIdx.x;
