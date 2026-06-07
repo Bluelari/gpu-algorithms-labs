@@ -6,6 +6,7 @@
 
 enum class ConvAlgorithm {
   CuDNN = -1,
+  ShmemTensorCore = 1,
 };
 
 void convlayer_gpu_opt(

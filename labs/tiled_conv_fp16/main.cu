@@ -146,19 +146,33 @@ static int eval(const shape wDims, const shape xDims, bool doVerify, ConvAlgorit
 }
 
 TEST_CASE("Convlayer", "[convlayer]") {
-  ConvAlgorithm algorithm = ConvAlgorithm::CuDNN;
+  ConvAlgorithm algorithm = ConvAlgorithm::ShmemTensorCore;
 #if 1
   SECTION("[wDims:16,1,5,5 xDims:20,1,28,28]") {
     eval({16, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
   }
 
-  // // Test channel != 1
-  // SECTION("[wDims:32,3,5,5 xDims:20,3,28,28]") {
-  //   eval({32, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
-  // }
-  // SECTION("[wDims:2,15,5,5 xDims:20,15,28,28]") {
-  //   eval({32, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
-  // }
+  // Test channel != 1
+  SECTION("[wDims:16,3,5,5 xDims:20,3,28,28]") {
+    eval({16, 3, 5, 5}, {20, 3, 28, 28}, true, algorithm);
+  }
+  SECTION("[wDims:16,15,5,5 xDims:20,15,28,28]") {
+    eval({16, 15, 5, 5}, {20, 15, 28, 28}, true, algorithm);
+  }
+
+  // Test input size != 28 x 28
+  SECTION("[wDims:3,2,5,5 xDims:10,2,56,56]") {
+    eval({3, 2, 5, 5}, {10, 2, 56, 56}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,112,112]") {
+    eval({3, 2, 5, 5}, {10, 2, 112, 112}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,20,28]") {
+    eval({3, 2, 5, 5}, {10, 2, 20, 28}, true, algorithm);
+  }
+  SECTION("[wDims:3,2,5,5 xDims:10,2,28,20]") {
+    eval({3, 2, 5, 5}, {10, 2, 28, 20}, true, algorithm);
+  }
 
   // // Test filter != 32
   // SECTION("[wDims:4,1,5,5 xDims:20,1,28,28]") {
@@ -178,38 +192,6 @@ TEST_CASE("Convlayer", "[convlayer]") {
   // }
   // SECTION("[wDims:1,1,5,5 xDims:20,1,28,28]") {
   //   eval({1, 1, 5, 5}, {20, 1, 28, 28}, true, algorithm);
-  // }
-
-  // // Test input size != 28 x 28
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,56,56]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 56, 56}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,112,112]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 112, 112}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,20,28]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 20, 28}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,28,20]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 28, 20}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,6,8]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 6, 8}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,31,31]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 31, 31}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,7,7]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 7, 7}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,25,28]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 25, 28}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,28,25]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 28, 25}, true, algorithm);
-  // }
-  // SECTION("[wDims:3,2,5,5 xDims:10,2,5,5]") {
-  //   eval({3, 2, 5, 5}, {10, 2, 5, 5}, true, algorithm);
   // }
 
   // // Test kernel size = 3x3

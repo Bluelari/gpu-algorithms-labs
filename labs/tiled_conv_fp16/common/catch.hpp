@@ -2401,6 +2401,16 @@ namespace Matchers {
       FloatingPointKind m_type;
     };
 
+    class WithinRelMatcher : public MatcherBase<double> {
+    public:
+        WithinRelMatcher( double target, double epsilon );
+        bool match(double const& matchee) const override;
+        std::string describe() const override;
+    private:
+        double m_target;
+        double m_epsilon;
+    };
+
   } // namespace Floating
 
   // The following functions create the actual matcher objects.
@@ -2408,6 +2418,7 @@ namespace Matchers {
   Floating::WithinUlpsMatcher WithinULP(double target, int maxUlpDiff);
   Floating::WithinUlpsMatcher WithinULP(float target, int maxUlpDiff);
   Floating::WithinAbsMatcher WithinAbs(double target, double margin);
+  Floating::WithinRelMatcher WithinRel(double target, double eps);
 
 } // namespace Matchers
 } // namespace Catch
@@ -7962,6 +7973,25 @@ namespace Matchers {
              ((m_type == FloatingPointKind::Float) ? "f" : "");
     }
 
+    WithinRelMatcher::WithinRelMatcher(double target, double epsilon):
+        m_target(target),
+        m_epsilon(epsilon){
+        CATCH_ENFORCE(m_epsilon >= 0., "Relative comparison with epsilon <  0 does not make sense.");
+        CATCH_ENFORCE(m_epsilon  < 1., "Relative comparison with epsilon >= 1 does not make sense.");
+    }
+
+    bool WithinRelMatcher::match(double const& matchee) const {
+        const auto relMargin = m_epsilon * (std::max)(std::fabs(matchee), std::fabs(m_target));
+        return marginComparison(matchee, m_target,
+                                std::isinf(relMargin)? 0 : relMargin);
+    }
+
+    std::string WithinRelMatcher::describe() const {
+        Catch::ReusableStringStream sstr;
+        sstr << "and " << ::Catch::Detail::stringify(m_target) << " are within " << m_epsilon * 100. << "% of each other";
+        return sstr.str();
+    }
+
   } // namespace Floating
 
   Floating::WithinUlpsMatcher WithinULP(double target, int maxUlpDiff) {
@@ -7974,6 +8004,10 @@ namespace Matchers {
 
   Floating::WithinAbsMatcher WithinAbs(double target, double margin) {
     return Floating::WithinAbsMatcher(target, margin);
+  }
+
+  Floating::WithinRelMatcher WithinRel(double target, double eps) {
+    return Floating::WithinRelMatcher(target, eps);
   }
 
 } // namespace Matchers
