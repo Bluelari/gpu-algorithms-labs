@@ -371,8 +371,13 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       break;
     }
     case ConvAlgorithm::MatmulConceptualUnrollingShmemRegisterTiled: {
+      cudaStream_t stream;
+      cudaStreamCreate(&stream);
+
       // Constant memory is used to store the convolution filter.
-      THROW_IF_ERROR(cudaMemcpyToSymbol(conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault));
+      THROW_IF_ERROR(cudaMemcpyToSymbolAsync(
+        conv_filter, W, sizeof(float) * wdims.flattened_length(), /*offset=*/0, cudaMemcpyDefault, stream
+      ));
 
       // This block size is a factor of ydims.height * ydims.width, and a multiple of ydims.width.
       // We use a simple algorithm to find the suitable block size: always pick the largest
@@ -401,16 +406,16 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
         constexpr std::size_t R = 5, S = 5;
 
         if (wdims.num <= 4) {
-          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 8) {
-          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 16) {
-          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 32) {
-          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         THROW_IF_ERROR(cudaGetLastError());
         THROW_IF_ERROR(cudaDeviceSynchronize());
@@ -419,16 +424,16 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
         constexpr std::size_t R = 3, S = 3;
 
         if (wdims.num <= 4) {
-          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<4, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 8) {
-          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<8, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 16) {
-          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<16, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         else if (wdims.num <= 32) {
-          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size>>>(X, xdims, Y, ydims);
+          conv_forward_shmem_register_tiled_matmul_kernel<32, R, S><<<dimGrid, blockSize, shared_memory_size, stream>>>(X, xdims, Y, ydims);
         }
         THROW_IF_ERROR(cudaGetLastError());
         THROW_IF_ERROR(cudaDeviceSynchronize());
@@ -436,6 +441,7 @@ void convlayer_gpu_opt(const float *X, const shape &xdims, const float *W, const
       else {
         std::cerr << "Unsupported size for MatmulConceptualUnrollingRegisterTiled" << std::endl;
       }
+      cudaStreamDestroy(stream);
       break;
     }
     default:
